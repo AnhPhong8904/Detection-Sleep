@@ -4,7 +4,7 @@
 EAR_THRESHOLD = 0.25
 
 # MAR (Mouth Aspect Ratio) threshold for yawning detection
-MAR_THRESHOLD = 0.5
+MAR_THRESHOLD = 0.7
 
 # Số frame liên tiếp để xác nhận trạng thái
 CONSEC_FRAMES = 20
@@ -15,3 +15,11 @@ NUM_FACES = 1
 
 # Video display settings
 WINDOW_NAME = "Face Landmarks"
+
+# Head pose thresholds (degrees)
+# Pitch: positive when head down
+HEAD_PITCH_DOWN_DEG = 10
+# Yaw: magnitude when turning left/right
+HEAD_YAW_TURN_DEG = 10
+# Roll: magnitude when tilting
+HEAD_ROLL_TILT_DEG = 8

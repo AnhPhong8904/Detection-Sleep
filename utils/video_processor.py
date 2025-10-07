@@ -5,6 +5,7 @@ import time
 from mediapipe.tasks.python import vision
 from detect.eye_ratio import compute_eyes_ear, LEFT_EYE_INDICES, RIGHT_EYE_INDICES
 from detect.mouth_ratio import compute_mouth_mar, MOUTH_LANDMARKS
+from detect.head import compute_head_angles
 from utils.draw_alert import draw_bbox_with_label
 from utils.config import EAR_THRESHOLD, MAR_THRESHOLD, CONSEC_FRAMES, WINDOW_NAME
 from utils.tracker import DetectionTracker
@@ -80,11 +81,12 @@ class VideoProcessor:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         # Detection stats (compact)
+        drowsy_head_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'DROWSY_HEAD')
+        drowsy_yawn_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'DROWSY_YAWN')
         drowsy_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'DROWSY')
         yawning_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'YAWNING')
-        alert_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'ALERT')
         
-        cv2.putText(frame, f"D:{drowsy_count} Y:{yawning_count} A:{alert_count}", (15, 70), 
+        cv2.putText(frame, f"DH:{drowsy_head_count} DY:{drowsy_yawn_count} D:{drowsy_count} Y:{yawning_count}", (15, 70), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
                    
     def _process_faces(self, detection_result, frame):
@@ -108,9 +110,10 @@ class VideoProcessor:
             # Draw landmarks
             self._draw_landmarks(frame, face_landmarks, width, height)
             
-            # Calculate EAR and MAR
+            # Calculate EAR, MAR and Head Pose
             _, _, avg_ear = compute_eyes_ear(face_landmarks)
             mar = compute_mouth_mar(face_landmarks)
+            head_angles = compute_head_angles(face_landmarks)
             
             # Update counters
             if avg_ear < EAR_THRESHOLD:
@@ -127,25 +130,42 @@ class VideoProcessor:
             is_drowsy = self.per_face_low_ear_counters[i] >= CONSEC_FRAMES
             is_yawning = self.per_face_high_mar_counters[i] >= CONSEC_FRAMES
 
-            if is_drowsy and is_yawning:
-                color = (0, 0, 255)  # Red - both drowsy and yawning
-                label = f"Alert! EAR={avg_ear:.3f} MAR={mar:.3f}"
-                status = "ALERT"
+            # Check head pose states
+            head_down = head_angles["pitch_state"] == "Head Down"
+            head_turned = head_angles["yaw_state"] != "Center"
+            head_tilted = head_angles["roll_state"] != "Straight"
+            head_moving = head_down or head_turned or head_tilted
+            
+            # Logic phân loại theo 5 trường hợp
+            if is_drowsy and head_moving:
+                # TH1: Nhắm mắt + Di chuyển đầu --> Ngủ gật --> Đỏ
+                color = (0, 0, 255)  # Red
+                head_info = f"P:{head_angles['pitch']:.1f}° Y:{head_angles['yaw']:.1f}° R:{head_angles['roll']:.1f}°"
+                label = f"Ngu gat! EAR={avg_ear:.3f} {head_info}"
+                status = "DROWSY_HEAD"
+            elif is_drowsy and is_yawning:
+                # TH2: Mắt nhắm + Ngáp --> Ngáp buồn ngủ --> Vàng
+                color = (0, 255, 255)  # Yellow
+                label = f"Ngap buon ngu EAR={avg_ear:.3f} MAR={mar:.3f}"
+                status = "DROWSY_YAWN"
             elif is_drowsy:
-                color = (0, 165, 255)  # Orange - drowsy
-                label = f"Drowsy EAR={avg_ear:.3f}"
+                # TH3: Mắt nhắm liên tục --> Buồn ngủ --> Vàng
+                color = (0, 255, 255)  # Yellow
+                label = f"Buon ngu EAR={avg_ear:.3f}"
                 status = "DROWSY"
             elif is_yawning:
-                color = (255, 0, 255)  # Magenta - yawning
-                label = f"Yawning MAR={mar:.3f}"
+                # TH4: Chỉ ngáp --> Ngáp nhẹ --> Tím
+                color = (255, 0, 255)  # Magenta
+                label = f"Ngap nhe MAR={mar:.3f}"
                 status = "YAWNING"
             else:
-                color = (0, 255, 0)  # Green - awake
-                label = f"Awake EAR={avg_ear:.3f} MAR={mar:.3f}"
+                # TH5: Không có gì --> Tỉnh táo --> Xanh
+                color = (0, 255, 0)  # Green
+                label = f"Tinh tao EAR={avg_ear:.3f} MAR={mar:.3f}"
                 status = "AWAKE"
 
             # Track detection events
-            if status in ['DROWSY', 'YAWNING', 'ALERT']:
+            if status in ['DROWSY_HEAD', 'DROWSY_YAWN', 'DROWSY', 'YAWNING']:
                 self.tracker.log_detection_event(status, self.tracker.frame_count, avg_ear, mar)
 
             # Draw bounding box
