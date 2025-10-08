@@ -66,19 +66,19 @@ class VideoProcessor:
         current_time = time.time()
         elapsed_time = current_time - self.tracker.start_time if self.tracker.start_time else 0
         
-        # Compact info panel background
-        cv2.rectangle(frame, (10, 10), (220, 80), (0, 0, 0), -1)
-        cv2.rectangle(frame, (10, 10), (220, 80), (255, 255, 255), 1)
+        # Compact info panel background (smaller)
+        cv2.rectangle(frame, (10, 10), (180, 60), (0, 0, 0), -1)
+        cv2.rectangle(frame, (10, 10), (180, 60), (255, 255, 255), 1)
         
         # Frame and time info (compact)
-        cv2.putText(frame, f"F:{self.tracker.frame_count} T:{elapsed_time:.1f}s", (15, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"F:{self.tracker.frame_count} T:{elapsed_time:.1f}s", (15, 25), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
         
         # FPS info
         if elapsed_time > 0:
             current_fps = self.tracker.frame_count / elapsed_time
-            cv2.putText(frame, f"FPS: {current_fps:.1f}", (15, 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(frame, f"FPS:{current_fps:.1f}", (15, 40), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
         
         # Detection stats (compact)
         drowsy_head_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'DROWSY_HEAD')
@@ -86,8 +86,8 @@ class VideoProcessor:
         drowsy_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'DROWSY')
         yawning_count = sum(1 for event in self.tracker.detection_events if event['type'] == 'YAWNING')
         
-        cv2.putText(frame, f"DH:{drowsy_head_count} DY:{drowsy_yawn_count} D:{drowsy_count} Y:{yawning_count}", (15, 70), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        cv2.putText(frame, f"DH:{drowsy_head_count} DY:{drowsy_yawn_count} D:{drowsy_count} Y:{yawning_count}", (15, 55), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
                    
     def _process_faces(self, detection_result, frame):
         """Xử lý phát hiện khuôn mặt"""
@@ -113,7 +113,7 @@ class VideoProcessor:
             # Calculate EAR, MAR and Head Pose
             _, _, avg_ear = compute_eyes_ear(face_landmarks)
             mar = compute_mouth_mar(face_landmarks)
-            head_angles = compute_head_angles(face_landmarks)
+            head_angles = compute_head_angles(face_landmarks, width, height)
             
             # Update counters
             if avg_ear < EAR_THRESHOLD:
