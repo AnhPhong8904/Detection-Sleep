@@ -7,7 +7,7 @@ EAR_THRESHOLD = 0.25
 MAR_THRESHOLD = 0.7
 
 # Số frame liên tiếp để xác nhận trạng thái
-CONSEC_FRAMES = 20
+CONSEC_FRAMES = 50
 
 # MediaPipe Face Landmarker configuration
 MIN_FACE_DETECTION_CONFIDENCE = 0.2
