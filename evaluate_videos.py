@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from utils.video_processor import VideoProcessor
-from utils.config import MIN_FACE_DETECTION_CONFIDENCE, NUM_FACES, WINDOW_NAME
+from utils.config import MIN_FACE_DETECTION_CONFIDENCE, NUM_FACES, WINDOW_NAME, MIN_FACE_PRESENCE_CONFIDENCE, MIN_TRACKING_CONFIDENCE
 
 
 def build_detector(model_path: str = "face_landmarker.task"):
@@ -16,6 +16,8 @@ def build_detector(model_path: str = "face_landmarker.task"):
 	options = vision.FaceLandmarkerOptions(
 		base_options=base_options,
 		min_face_detection_confidence=MIN_FACE_DETECTION_CONFIDENCE,
+		min_face_presence_confidence=MIN_FACE_PRESENCE_CONFIDENCE,
+		min_tracking_confidence=MIN_TRACKING_CONFIDENCE,
 		output_face_blendshapes=True,
 		output_facial_transformation_matrixes=True,
 		num_faces=NUM_FACES,
@@ -105,8 +107,8 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str):
 
 def main():
 	parser = argparse.ArgumentParser(description='Evaluate videos with rule-based detection')
-	parser.add_argument('--csv', type=str, default='ground_truth.csv', help='Path to ground truth CSV')
-	parser.add_argument('--videos', type=str, default='video', help='Base videos directory')
+	parser.add_argument('--csv', type=str, default=r'csv\ground_truth1.csv', help='Path to ground truth CSV')
+	parser.add_argument('--videos', type=str, default=r'sugawara_real_sample', help='Base videos directory')
 	parser.add_argument('--outdir', type=str, default='csv', help='Output directory for CSV and reports')
 	parser.add_argument('--show', action='store_true', help='Show inference window while processing')
 	parser.add_argument('--save-vis', action='store_true', help='Save annotated videos to outdir/vis')
@@ -138,7 +140,7 @@ def main():
 		video_name = row['video_name']
 		# Try to find the video in known folders
 		video_path = None
-		for folder in ['ngugat', 'tinhtao']:
+		for folder in ['drowsiness', 'normal']:
 			candidate = os.path.join(args.videos, folder, video_name)
 			if os.path.exists(candidate):
 				video_path = candidate

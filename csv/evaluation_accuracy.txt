@@ -1,9 +1,0 @@
-Total videos (known): 18
-Accuracy:  0.7778 (77.78%)
-Precision: 0.7273 (72.73%)
-Recall:    0.8889 (88.89%)
-F1-Score:  0.8000 (80.00%)
-
-Confusion Matrix (rows=GT, cols=Pred)
-[[6 3]
- [1 8]]
