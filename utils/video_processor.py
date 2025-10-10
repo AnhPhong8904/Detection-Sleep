@@ -7,7 +7,7 @@ from detect.eye_ratio import compute_eyes_ear, LEFT_EYE_INDICES, RIGHT_EYE_INDIC
 from detect.mouth_ratio import compute_mouth_mar, MOUTH_LANDMARKS
 from detect.head import compute_head_angles
 from utils.draw_alert import draw_bbox_with_label
-from utils.config import EAR_THRESHOLD, MAR_THRESHOLD, CONSEC_FRAMES, WINDOW_NAME
+from utils.config import EAR_THRESHOLD, MAR_THRESHOLD, CONSEC_FRAMES, WINDOW_NAME, USE_ROI, ROI_PIXELS
 from utils.tracker import DetectionTracker
 
 class VideoProcessor:
@@ -35,26 +35,106 @@ class VideoProcessor:
         """Xử lý một frame"""
         # Increment frame counter
         self.tracker.increment_frame()
-        
-        # Convert frame
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        detection_result = self.detector.detect_for_video(mp_image, timestamp)
-        
-        # Convert back to BGR for display
-        output_bgr = cv2.cvtColor(mp_image.numpy_view(), cv2.COLOR_RGB2BGR)
-        
-        # Draw tracking info
+
+        full_h, full_w = frame.shape[:2]
+
+        # Decide ROI (x,y,w,h) if used
+        roi = ROI_PIXELS if USE_ROI else None
+        if roi:
+            x_off, y_off, roi_w, roi_h = roi
+            # clamp ROI to frame
+            x_off = max(0, min(int(x_off), full_w - 1))
+            y_off = max(0, min(int(y_off), full_h - 1))
+            roi_w = max(1, min(int(roi_w), full_w - x_off))
+            roi_h = max(1, min(int(roi_h), full_h - y_off))
+            crop = frame[y_off:y_off+roi_h, x_off:x_off+roi_w]
+            input_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=input_rgb)
+            # Run detector on crop
+            detection_result = self.detector.detect_for_video(mp_image, timestamp)
+            # Prepare full-frame output for drawing
+            output_bgr = frame.copy()
+        else:
+            # No ROI: original behavior (detect on full frame)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            detection_result = self.detector.detect_for_video(mp_image, timestamp)
+            output_bgr = frame.copy()
+
+        # If no faces detected -> reset state so landmarks biến mất
+        faces_present = bool(detection_result and getattr(detection_result, "face_landmarks", None))
+        if not faces_present:
+            # Clear per-face counters and blendshapes to avoid using stale data
+            self.per_face_low_ear_counters = []
+            self.per_face_high_mar_counters = []
+            self.last_blendshapes = None
+
+            # Optional: hiển thị thông báo trên khung (ở trong ROI nếu có)
+            if roi:
+                cv2.putText(output_bgr, "No face in ROI", (x_off + 5, y_off + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            else:
+                cv2.putText(output_bgr, "No face detected", (10, 80),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+            # Draw info panel and ROI rectangle and return (no _process_faces call)
+            self._draw_info_panel(output_bgr)
+            if roi:
+                cv2.rectangle(output_bgr, (x_off, y_off), (x_off + roi_w, y_off + roi_h), (0, 255, 0), 2)
+            if self.video_writer is not None:
+                self.video_writer.write(output_bgr)
+            return output_bgr
+
+        # Draw info panel on full-frame (continues normal flow when faces present)
         self._draw_info_panel(output_bgr)
-        
-        # Process face detection
-        if detection_result.face_landmarks:
-            self._process_faces(detection_result, output_bgr)
-            
-        # Lưu blendshapes của frame cuối cùng
-        if detection_result.face_blendshapes:
-            self.last_blendshapes = detection_result.face_blendshapes[0]
-            
+
+        # If detection_result has faces (and ROI used) we must map landmarks to full-frame coords
+        if detection_result and detection_result.face_landmarks:
+            # If we ran on crop, map normalized crop coords -> normalized full-frame coords
+            if roi:
+                class SimpleLandmark:
+                    def __init__(self, x, y):
+                        self.x = x
+                        self.y = y
+
+                # build a simple detection-like object where face_landmarks are lists of SimpleLandmark
+                class SimpleDet:
+                    pass
+                simple_det = SimpleDet()
+                simple_det.face_landmarks = []
+                for face in detection_result.face_landmarks:
+                    mapped = []
+                    for lm in face:
+                        # lm.x / lm.y are normalized relative to crop
+                        abs_x = lm.x * roi_w + x_off      # pixel in full frame
+                        abs_y = lm.y * roi_h + y_off
+                        # normalized relative to full frame for downstream functions
+                        norm_x = abs_x / full_w
+                        norm_y = abs_y / full_h
+                        mapped.append(SimpleLandmark(norm_x, norm_y))
+                    simple_det.face_landmarks.append(mapped)
+
+                # carry over blendshapes if present (take first)
+                if hasattr(detection_result, "face_blendshapes") and detection_result.face_blendshapes:
+                    simple_det.face_blendshapes = detection_result.face_blendshapes
+                else:
+                    simple_det.face_blendshapes = None
+
+                # Process using mapped landmarks on full-frame
+                self._process_faces(simple_det, output_bgr)
+                # store blendshapes
+                if simple_det.face_blendshapes:
+                    self.last_blendshapes = simple_det.face_blendshapes[0]
+            else:
+                # No ROI case: original processing (full frame)
+                self._process_faces(detection_result, output_bgr)
+                if detection_result.face_blendshapes:
+                    self.last_blendshapes = detection_result.face_blendshapes[0]
+
+        # Optionally draw ROI rectangle for debugging/visualization
+        if roi:
+            cv2.rectangle(output_bgr, (x_off, y_off), (x_off + roi_w, y_off + roi_h), (0, 255, 0), 2)
+
         # Write to video if saving
         if self.video_writer is not None:
             self.video_writer.write(output_bgr)
